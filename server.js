@@ -171,7 +171,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, {
           'Content-Type': 'application/x-bittorrent',
           'Content-Length': result.buffer.length,
-          'Content-Disposition': 'attachment; filename="' + hash + '.torrent',
+          'Content-Disposition': 'attachment; filename="' + hash + '.torrent"',
           'Cache-Control': 'no-store',
         });
         res.end(result.buffer);
