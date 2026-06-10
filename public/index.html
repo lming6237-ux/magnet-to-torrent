@@ -103,26 +103,24 @@
       }
     }
     
-    function triggerDownload(hash) {
-      log('触发下载: ' + hash + '.torrent', 'ok');
-      // 方式1: POST 表单（最可靠，不会被浏览器当作文本显示）
-      document.getElementById('formHash').value = hash;
-      document.getElementById('downloadForm').submit();
-    }
-    
-    function triggerGetDownload(hash) {
-      const url = '/api/torrent?hash=' + hash;
-      // 方式2: 直接用 window.location
-      window.location.href = url;
-    }
-    
-    function triggerAnchorDownload(hash) {
+    async function downloadWithBlob(hash) {
+      log('方式1: blob下载 hash=' + hash);
+      const resp = await fetch('/api/torrent?hash=' + hash, { cache: 'no-store' });
+      if (!resp.ok) { alert('下载失败'); return; }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = '/api/torrent?hash=' + hash;
+      a.href = url;
       a.download = hash + '.torrent';
       document.body.appendChild(a);
       a.click();
-      setTimeout(() => document.body.removeChild(a), 100);
+      setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+      log('blob下载完成', 'ok');
+    }
+    
+    function downloadViaWindowOpen(hash) {
+      log('方式2: window.open下载 hash=' + hash);
+      window.open('/api/torrent?hash=' + hash, '_blank');
     }
     
     async function convert() {
@@ -161,30 +159,27 @@
         const sizeKB = (blob.size / 1024).toFixed(2);
         log('成功! 大小: ' + sizeKB + ' KB', 'ok');
         
+        // 保存到页面变量，供按钮使用
+        window._currentBlob = blob;
+        window._currentHash = hash;
+        
         resultEl.innerHTML = `
           <span class="ok">✓ 转换成功</span><br/><br/>
           Hash: <code>${hash}</code><br/>
           大小: ${sizeKB} KB
           <div class="download-section">
-            <h4>📥 下载方式（请依次尝试）</h4>
+            <h4>📥 点击下载</h4>
             <div>
-              <button class="download-btn green" onclick="triggerDownload('${hash}')">⬇ 方式1: POST表单下载</button>
-              <span class="method-label">推荐</span>
-            </div>
-            <div>
-              <button class="download-btn" onclick="triggerGetDownload('${hash}')">⬇ 方式2: GET跳转下载</button>
-            </div>
-            <div>
-              <button class="download-btn alt" onclick="triggerAnchorDownload('${hash}')">⬇ 方式3: a标签下载</button>
+              <button class="download-btn green" onclick="downloadWithBlob('${hash}')">⬇ 下载 .torrent 文件</button>
             </div>
           </div>
           <div class="url-box">
-            下载链接: <a href="${fullUrl}" download="${hash}.torrent">${fullUrl}</a>
-            <button class="copy-btn" onclick="copyToClipboard('${fullUrl}').then(success => alert(success ? '已复制!' : '复制失败'))">复制</button>
+            下载链接: ${fullUrl}
+            <button class="copy-btn" onclick="copyToClipboard('${fullUrl}').then(s => alert(s?'已复制!':'复制失败'))">复制</button>
           </div>
           <div class="url-box">
-            curl 命令: <code>curl "${fullUrl}" -o ${hash}.torrent</code>
-            <button class="copy-btn" onclick="copyToClipboard('curl \\\"${fullUrl}\\\" -o ${hash}.torrent').then(success => alert(success ? '已复制!' : '复制失败'))">复制</button>
+            curl: <code>curl "${fullUrl}" -o ${hash}.torrent</code>
+            <button class="copy-btn" onclick="copyToClipboard('curl \\"${fullUrl}\\" -o ${hash}.torrent').then(s => alert(s?'已复制!':'复制失败'))">复制</button>
           </div>
         `;
       } catch(err) {
