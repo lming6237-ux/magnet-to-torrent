@@ -114,14 +114,31 @@
           log('失败: ' + msg, 'err');
           return;
         }
-        const blob = await resp.blob();
-        log('成功! 大小: ' + (blob.size / 1024).toFixed(2) + ' KB', 'ok');
-        resultEl.innerHTML = '<span class="ok">✓ 转换成功</span><br/><br/>Hash: <code>' + hash + '</code><br/>大小: ' + (blob.size / 1024).toFixed(2) + ' KB<br/>';
-        const dlBtn = document.createElement('button');
-        dlBtn.className = 'download-btn';
-        dlBtn.textContent = '⬇ 下载 .torrent 文件';
-        dlBtn.onclick = () => downloadFile(blob, hash + '.torrent');
-        resultEl.appendChild(dlBtn);
+        const data = await resp.arrayBuffer();
+        log('成功! 大小: ' + (data.byteLength / 1024).toFixed(2) + ' KB', 'ok');
+        resultEl.innerHTML = '<span class="ok">✓ 转换成功</span><br/><br/>Hash: <code>' + hash + '</code><br/>大小: ' + (data.byteLength / 1024).toFixed(2) + ' KB<br/>';
+        // 方案A: 直接链接下载（最可靠）
+        const directLink = document.createElement('a');
+        directLink.href = '/api/torrent?hash=' + hash;
+        directLink.download = hash + '.torrent';
+        directLink.className = 'download-btn';
+        directLink.textContent = '⬇ 下载 .torrent 文件';
+        resultEl.appendChild(directLink);
+        // 方案B: 备用下载链接（新窗口打开）
+        const br = document.createElement('div');
+        br.style.marginTop = '8px';
+        resultEl.appendChild(br);
+        const altLink = document.createElement('a');
+        altLink.href = '/api/torrent?hash=' + hash;
+        altLink.target = '_blank';
+        altLink.rel = 'noopener noreferrer';
+        altLink.style.color = '#0969da';
+        altLink.style.fontSize = '12px';
+        altLink.style.textDecoration = 'none';
+        altLink.textContent = '→ 如果按钮无效，点击此处在新窗口下载';
+        resultEl.appendChild(altLink);
+        // 方案C: 自动触发一次下载（可选）
+        setTimeout(() => { downloadFile(new Blob([data], { type: 'application/x-bittorrent' }), hash + '.torrent'); }, 300);
       } catch(err) {
         stopProgress(false);
         resultEl.innerHTML = '<span class="err">✗ 请求错误: ' + err.message + '</span>';
