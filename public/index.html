@@ -11,7 +11,8 @@
     .sub { color: #57606a; font-size: 14px; margin-bottom: 20px; }
     .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 24px; }
     label { display: block; font-size: 13px; color: #424a53; margin-bottom: 6px; font-weight: 500; }
-    input[type=text] { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #d0d7de; border-radius: 6px; margin-bottom: 12px; font-family: ui-monospace, monospace; }
+    input[type=text] { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #d0d7de; border-radius: 6px; margin-bottom: 12px; font-family: ui-monospace, monospace; box-sizing: border-box; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
     button { padding: 10px 24px; font-size: 14px; background: #2da44e; color: #fff; border: 1px solid rgba(27,31,36,0.15); border-radius: 6px; cursor: pointer; font-weight: 500; }
     button:hover:not(:disabled) { background: #2c974b; }
     button:disabled { background: #81b196; cursor: not-allowed; }
@@ -23,16 +24,23 @@
     .log .ok { color: #3fb950; }
     .log .warn { color: #d29922; }
     .log .err { color: #f85149; }
-    .download-btn { display: inline-block; margin-top: 12px; padding: 10px 20px; background: #0969da; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500; }
+    .download-btn { display: inline-block; margin: 6px 6px 6px 0; padding: 10px 16px; background: #0969da; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 13px; cursor: pointer; border: none; }
     .download-btn:hover { background: #0759b5; }
+    .download-btn.alt { background: #6e7781; }
+    .download-btn.alt:hover { background: #57606a; }
+    .download-btn.green { background: #2da44e; }
+    .download-btn.green:hover { background: #2c974b; }
     .examples { margin-top: 16px; font-size: 12px; color: #57606a; }
     .examples code { background: #eaeef2; padding: 2px 6px; border-radius: 4px; }
     .progress { width: 100%; height: 6px; background: #d0d7de; border-radius: 3px; overflow: hidden; margin: 10px 0; }
     .progress-fill { height: 100%; background: #2da44e; width: 0; transition: width .3s; }
-    .url-box { margin-top: 12px; padding: 10px; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+    .url-box { margin-top: 12px; padding: 10px; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
     .copy-btn { padding: 4px 12px; font-size: 12px; background: #f6f8fa; color: #24292f; border: 1px solid #d0d7de; border-radius: 4px; cursor: pointer; }
     .copy-btn:hover { background: #eaeef2; }
     .tip { margin-top: 16px; padding: 12px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 6px; font-size: 13px; color: #856404; }
+    .download-section { margin-top: 12px; }
+    .download-section h4 { margin: 8px 0; font-size: 13px; color: #57606a; font-weight: 500; }
+    .method-label { font-size: 11px; display: inline-block; margin-left: 6px; padding: 2px 6px; background: #eaeef2; border-radius: 4px; color: #57606a; }
   </style>
 </head>
 <body>
@@ -40,23 +48,25 @@
     <h1>🔗 磁力链接转 Torrent 文件</h1>
     <div class="sub">通过公共缓存源获取 torrent 元数据</div>
     
-    <div class="tip">
-      💡 <strong>重要提示</strong>: 如果下载按钮在当前预览环境中无效，请在普通浏览器中打开本页面，或直接复制下方生成的下载链接到新标签页。
-    </div>
-    
     <div class="card">
       <label for="magnet">磁力链接 / info hash</label>
       <input id="magnet" type="text" placeholder="magnet:?xt=urn:btih:4A3F5E08BCEF825718EDA30637230585E3330599" />
-      <button id="btn" onclick="convert()">开始转换</button>
+      <div class="row">
+        <button id="btn" onclick="convert()">开始转换</button>
+      </div>
       <div class="progress"><div class="progress-fill" id="progressFill"></div></div>
       <div class="examples">
-        示例: <code>magnet:?xt=urn:btih:4A3F5E08BCEF825718EDA30637230585E3330599</code><br/>
-        或 40 位 hash: <code>4A3F5E08BCEF825718EDA30637230585E3330599</code>
+        测试示例：<code>4A3F5E08BCEF825718EDA30637230585E3330599</code> (Ubuntu镜像)
       </div>
       <div id="result" style="display:none"></div>
       <div class="log" id="log"></div>
     </div>
   </div>
+  
+  <form id="downloadForm" action="/api/torrent" method="POST" target="_blank" style="display:none">
+    <input type="hidden" name="hash" id="formHash" />
+  </form>
+  
   <script>
     let progressTimer = null;
     function log(msg, type) {
@@ -92,6 +102,29 @@
         return false;
       }
     }
+    
+    function triggerDownload(hash) {
+      log('触发下载: ' + hash + '.torrent', 'ok');
+      // 方式1: POST 表单（最可靠，不会被浏览器当作文本显示）
+      document.getElementById('formHash').value = hash;
+      document.getElementById('downloadForm').submit();
+    }
+    
+    function triggerGetDownload(hash) {
+      const url = '/api/torrent?hash=' + hash;
+      // 方式2: 直接用 window.location
+      window.location.href = url;
+    }
+    
+    function triggerAnchorDownload(hash) {
+      const a = document.createElement('a');
+      a.href = '/api/torrent?hash=' + hash;
+      a.download = hash + '.torrent';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => document.body.removeChild(a), 100);
+    }
+    
     async function convert() {
       const raw = document.getElementById('magnet').value;
       const hash = parseMagnet(raw);
@@ -107,12 +140,15 @@
       btn.disabled = true;
       btn.textContent = '转换中...';
       startProgress();
-      log('目标 hash: ' + hash);
+      log('解析 hash: ' + hash);
       log('正在从缓存源获取 torrent 文件...');
       try {
         const downloadUrl = '/api/torrent?hash=' + hash;
+        const fullUrl = window.location.origin + downloadUrl;
+        
         const resp = await fetch(downloadUrl, { cache: 'no-store' });
         stopProgress(true);
+        
         if (!resp.ok) {
           let msg = '转换失败';
           try { const j = await resp.json(); if (j.error) msg = j.error; } catch(e) {}
@@ -120,28 +156,35 @@
           log('失败: ' + msg, 'err');
           return;
         }
-        const data = await resp.arrayBuffer();
-        const sizeKB = (data.byteLength / 1024).toFixed(2);
+        
+        const blob = await resp.blob();
+        const sizeKB = (blob.size / 1024).toFixed(2);
         log('成功! 大小: ' + sizeKB + ' KB', 'ok');
         
-        const fullUrl = window.location.origin + downloadUrl;
         resultEl.innerHTML = `
           <span class="ok">✓ 转换成功</span><br/><br/>
           Hash: <code>${hash}</code><br/>
-          大小: ${sizeKB} KB<br/>
-          <div style="margin-top:12px;">
-            <a href="${downloadUrl}" download="${hash}.torrent" class="download-btn">⬇ 点击下载 .torrent 文件</a>
+          大小: ${sizeKB} KB
+          <div class="download-section">
+            <h4>📥 下载方式（请依次尝试）</h4>
+            <div>
+              <button class="download-btn green" onclick="triggerDownload('${hash}')">⬇ 方式1: POST表单下载</button>
+              <span class="method-label">推荐</span>
+            </div>
+            <div>
+              <button class="download-btn" onclick="triggerGetDownload('${hash}')">⬇ 方式2: GET跳转下载</button>
+            </div>
+            <div>
+              <button class="download-btn alt" onclick="triggerAnchorDownload('${hash}')">⬇ 方式3: a标签下载</button>
+            </div>
           </div>
           <div class="url-box">
-            下载链接: ${fullUrl}
-            <button class="copy-btn" onclick="copyToClipboard('${fullUrl}').then(success => alert(success ? '已复制到剪贴板!' : '复制失败，请手动复制'))">复制链接</button>
+            下载链接: <a href="${fullUrl}" download="${hash}.torrent">${fullUrl}</a>
+            <button class="copy-btn" onclick="copyToClipboard('${fullUrl}').then(success => alert(success ? '已复制!' : '复制失败'))">复制</button>
           </div>
-          <div style="margin-top:12px;font-size:13px;color:#57606a;">
-            💡 如果按钮无效，请：
-            <ul style="margin:8px 0 0 20px;padding:0;">
-              <li>将上方链接复制到浏览器新标签页打开</li>
-              <li>或使用命令: <code>curl "${fullUrl}" -o ${hash}.torrent</code></li>
-            </ul>
+          <div class="url-box">
+            curl 命令: <code>curl "${fullUrl}" -o ${hash}.torrent</code>
+            <button class="copy-btn" onclick="copyToClipboard('curl \\\"${fullUrl}\\\" -o ${hash}.torrent').then(success => alert(success ? '已复制!' : '复制失败'))">复制</button>
           </div>
         `;
       } catch(err) {
