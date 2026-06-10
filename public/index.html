@@ -3,57 +3,108 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>磁力链接转 Torrent</title>
+  <title>磁力链接一键下载</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background: #f6f8fa; color: #1f2328; }
-    .container { max-width: 720px; margin: 0 auto; }
+    .container { max-width: 820px; margin: 0 auto; }
     h1 { font-size: 22px; margin-bottom: 8px; }
     .sub { color: #57606a; font-size: 13px; margin-bottom: 16px; }
-    .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 20px; }
+    .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 20px; margin-bottom: 14px; }
     label { display: block; font-size: 13px; color: #424a53; margin-bottom: 6px; font-weight: 500; }
     input[type=text] { width: 100%; padding: 10px 12px; font-size: 13px; border: 1px solid #d0d7de; border-radius: 6px; margin-bottom: 12px; font-family: ui-monospace, monospace; box-sizing: border-box; }
     button { padding: 8px 20px; font-size: 13px; background: #2da44e; color: #fff; border: 1px solid rgba(27,31,36,0.15); border-radius: 6px; cursor: pointer; font-weight: 500; }
     button:hover:not(:disabled) { background: #2c974b; }
     button:disabled { background: #81b196; cursor: not-allowed; }
+    button.alt { background: #0969da; }
+    button.alt:hover:not(:disabled) { background: #0759b5; }
+    button.stop { background: #cf222e; }
+    button.stop:hover:not(:disabled) { background: #b81c27; }
     #result { margin-top: 14px; padding: 12px; background: #f6f8fa; border-radius: 6px; word-break: break-all; border: 1px solid #d0d7de; font-size: 13px; display: none; }
     .ok { color: #1a7f37; font-weight: 600; }
     .err { color: #cf222e; font-weight: 600; }
-    .download-btn { display: inline-block; margin: 6px; padding: 8px 14px; background: #0969da; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 12px; cursor: pointer; border: none; }
+    .download-btn { display: inline-block; margin: 6px 4px; padding: 8px 14px; background: #0969da; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 12px; cursor: pointer; border: none; }
     .download-btn:hover { background: #0759b5; }
-    .download-btn.alt { background: #6e7781; }
     .download-btn.green { background: #2da44e; }
     .url-box { margin-top: 8px; padding: 10px; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; line-height: 1.6; }
     .copy-btn { padding: 3px 10px; font-size: 11px; background: #f6f8fa; color: #24292f; border: 1px solid #d0d7de; border-radius: 4px; cursor: pointer; margin-left: 6px; }
     .hint { margin-top: 8px; padding: 10px; background: #fff4e5; border: 1px solid #ffd591; border-radius: 6px; font-size: 12px; color: #8a5300; line-height: 1.6; }
     .examples { margin-top: 10px; font-size: 11px; color: #57606a; }
     .examples code { background: #eaeef2; padding: 1px 5px; border-radius: 3px; }
-    .progress-bar { width: 100%; height: 4px; background: #d0d7de; border-radius: 2px; overflow: hidden; margin: 6px 0; display: none; }
-    .progress-bar-fill { height: 100%; background: #2da44e; width: 0; animation: progress 1.5s infinite; }
-    @keyframes progress { 0% { width: 0; margin-left: 0; } 50% { width: 70%; margin-left: 15%; } 100% { width: 0; margin-left: 100%; } }
+    .progress-wrap { margin-top: 10px; display: none; }
+    .progress-bar { width: 100%; height: 16px; background: #d0d7de; border-radius: 8px; overflow: hidden; margin: 8px 0; }
+    .progress-bar-fill { height: 100%; background: #2da44e; width: 0%; transition: width 0.3s; text-align: center; color: #fff; font-size: 11px; line-height: 16px; white-space: nowrap; overflow: hidden; }
+    .speed-info { font-size: 12px; color: #57606a; font-family: ui-monospace, monospace; }
+    .log-box { margin-top: 10px; padding: 10px; background: #0d1117; color: #8b949e; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 11px; max-height: 200px; overflow-y: auto; display: none; white-space: pre-wrap; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1px solid #d0d7de; padding-bottom: 0; }
+    .tab { padding: 8px 16px; cursor: pointer; border: none; background: transparent; color: #57606a; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
+    .tab.active { color: #0969da; border-bottom-color: #0969da; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .file-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: #f6f8fa; border-radius: 4px; margin: 4px 0; font-size: 12px; }
+    .file-item a { color: #0969da; text-decoration: none; font-weight: 500; }
+    .file-item a:hover { text-decoration: underline; }
+    .file-size { color: #57606a; font-family: ui-monospace, monospace; font-size: 11px; }
+    .mode-row { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+    .divider { border-top: 1px dashed #d0d7de; margin: 14px 0; }
+    .phase-tag { display: inline-block; padding: 2px 8px; background: #ddf4ff; color: #0969da; border-radius: 10px; font-size: 11px; font-weight: 500; margin-right: 8px; }
+    .phase-tag.warn { background: #fff8c5; color: #8a5300; }
+    .phase-tag.err { background: #ffebe9; color: #cf222e; }
+    .phase-tag.ok { background: #dafbe1; color: #1a7f37; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>🔗 磁力链接转 Torrent</h1>
-    <div class="sub">粘贴磁力链接或 info hash，获取 .torrent 文件</div>
-    
+    <h1>🔗 磁力链接一键下载</h1>
+    <div class="sub">输入磁力链接 → 自动获取 torrent → 自动下载内容（aria2c BT 下载）</div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('download')">🔄 下载内容</button>
+      <button class="tab" onclick="switchTab('torrent')">📄 仅获取 Torrent</button>
+    </div>
+
     <div class="card">
       <label for="magnet">输入磁力链接 / info hash</label>
       <input id="magnet" type="text" placeholder="magnet:?xt=urn:btih:4A3F5E08BCEF825718EDA30637230585E3330599&dn=ubuntu" />
-      <button id="btn" onclick="convert()">开始转换</button>
-      <div class="progress-bar" id="progressBar"><div class="progress-bar-fill"></div></div>
       <div class="examples">
         测试: <code>4A3F5E08BCEF825718EDA30637230585E3330599</code> 或 <code>A987EB182DC1CE638FEF046050B942A60FFE9025</code>
       </div>
-      <div id="result"></div>
+
+      <div class="tab-content active" id="tab-download" style="margin-top:14px;">
+        <div class="mode-row">
+          <button id="btn-download" onclick="startDownload()">🚀 一键下载内容</button>
+          <button class="stop" id="btn-stop" onclick="stopDownload()" style="display:none;">⏹ 停止</button>
+        </div>
+        <div class="progress-wrap" id="downloadProgress">
+          <div id="phaseInfo" style="font-size:13px; margin-bottom: 4px;"></div>
+          <div class="progress-bar"><div class="progress-bar-fill" id="dlProgressFill">0%</div></div>
+          <div class="speed-info" id="speedInfo">等待中...</div>
+          <div class="log-box" id="logBox"></div>
+        </div>
+        <div id="downloadResult" style="display:none; margin-top:14px;"></div>
+      </div>
+
+      <div class="tab-content" id="tab-torrent" style="margin-top:14px;">
+        <button id="btn-torrent" onclick="getTorrent()">📄 获取 Torrent 文件</button>
+        <div id="torrentResult"></div>
+      </div>
     </div>
 
-    <div class="hint" style="margin-top: 14px;">
-      💡 <strong>下载提示</strong>：如果点击按钮后没有弹出下载，请用鼠标<strong>右键→在新标签页中打开</strong>下载链接，或复制下方URL到新标签页。
+    <div class="hint">
+      💡 <strong>一条龙工作流</strong>：输入磁力链接 → 服务端从公共缓存源获取 .torrent 文件 → 启动 aria2c 进行 BT 下载 → 下载完成后显示结果，点击即可下载到本地。<br/>
+      <strong>说明</strong>：BT 下载依赖网络和 peers 可用情况，冷门资源可能速度较慢或无法下载。
     </div>
   </div>
-  
+
   <script>
+    let currentEventSource = null;
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + name).classList.add('active');
+    }
+
     function parseMagnet(input) {
       input = (input || '').trim();
       if (/^[a-fA-F0-9]{40}$/.test(input)) return input.toUpperCase();
@@ -61,86 +112,203 @@
       if (m) return m[1].toUpperCase();
       return null;
     }
-    
-    async function downloadBlob(hash) {
-      const url = '/api/torrent?hash=' + hash;
-      const resp = await fetch(url, { cache: 'no-store' });
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const blob = await resp.blob();
-      const dl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = dl;
-      a.download = hash + '.torrent';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(dl); document.body.removeChild(a); }, 1000);
+
+    function fmtSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+      return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
     }
-    
-    async function convert() {
+
+    function stopDownload() {
+      if (currentEventSource) {
+        currentEventSource.close();
+        currentEventSource = null;
+        appendLog('用户已停止下载');
+        document.getElementById('btn-stop').style.display = 'none';
+        document.getElementById('btn-download').disabled = false;
+        document.getElementById('btn-download').textContent = '🚀 一键下载内容';
+      }
+    }
+
+    function appendLog(msg) {
+      const box = document.getElementById('logBox');
+      box.style.display = 'block';
+      box.textContent += (msg.startsWith('[') ? msg : '[' + new Date().toLocaleTimeString() + '] ' + msg) + '\n';
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function clearUI() {
+      document.getElementById('dlProgressFill').style.width = '0%';
+      document.getElementById('dlProgressFill').textContent = '0%';
+      document.getElementById('speedInfo').textContent = '等待中...';
+      document.getElementById('phaseInfo').innerHTML = '';
+      document.getElementById('logBox').textContent = '';
+      document.getElementById('logBox').style.display = 'none';
+      document.getElementById('downloadResult').innerHTML = '';
+      document.getElementById('downloadResult').style.display = 'none';
+      document.getElementById('downloadProgress').style.display = 'block';
+    }
+
+    function startDownload() {
       const raw = document.getElementById('magnet').value;
       const hash = parseMagnet(raw);
-      const btn = document.getElementById('btn');
-      const result = document.getElementById('result');
-      const progress = document.getElementById('progressBar');
-      
-      result.innerHTML = '';
-      result.style.display = 'block';
-      
+      const btn = document.getElementById('btn-download');
+
       if (!hash) {
-        result.innerHTML = '<span class="err">✗ 请输入有效的磁力链接或40位 info hash</span>';
+        alert('请输入有效的磁力链接或40位 info hash');
         return;
       }
-      
+
+      stopDownload();
+      clearUI();
+      btn.disabled = true;
+      btn.textContent = '下载中...';
+      document.getElementById('btn-stop').style.display = 'inline-block';
+
+      appendLog('开始处理 hash: ' + hash);
+
+      const url = '/api/download?hash=' + hash;
+      const es = new EventSource(url);
+      currentEventSource = es;
+
+      es.addEventListener('state', (e) => {
+        const d = JSON.parse(e.data);
+        let tagClass = '';
+        let tagText = d.phase || '';
+        if (d.phase === 'fetching') tagClass = 'warn';
+        else if (d.phase === 'got-torrent' || d.phase === 'downloading' || d.phase === 'aria2-start') tagClass = 'ok';
+        document.getElementById('phaseInfo').innerHTML =
+          '<span class="phase-tag' + (tagClass ? ' ' + tagClass : '') + '">' + tagText + '</span>' +
+          '<span style="color:#424a53;">' + (d.message || '') + '</span>';
+        appendLog(d.message || d.phase);
+      });
+
+      es.addEventListener('progress', (e) => {
+        const d = JSON.parse(e.data);
+        const pct = Math.max(0, Math.min(100, d.percent || 0));
+        document.getElementById('dlProgressFill').style.width = pct + '%';
+        document.getElementById('dlProgressFill').textContent = pct + '%';
+        document.getElementById('speedInfo').textContent = '⚡ ' + (d.speed || '') + '  |  ' + (d.info || '');
+      });
+
+      es.addEventListener('log', (e) => {
+        const d = JSON.parse(e.data);
+        appendLog(d.message);
+      });
+
+      es.addEventListener('done', (e) => {
+        const d = JSON.parse(e.data);
+        appendLog('✅ 下载完成！共 ' + (d.files || []).length + ' 个文件');
+        let html = '<div class="card" style="margin-top:12px; padding:14px;">';
+        html += '<div style="font-size:14px; font-weight:600; color:#1a7f37;">🎉 下载完成！</div>';
+        html += '<div style="font-size:12px; color:#57606a; margin:6px 0;">保存位置: <code>' + (d.saved_path || '') + '</code></div>';
+        html += '<div class="divider"></div>';
+        html += '<div style="font-size:13px; font-weight:600; margin-bottom:8px;">📦 已下载文件（点击可下载到本地）：</div>';
+        const files = d.files || [];
+        if (files.length === 0) {
+          html += '<div style="font-size:12px; color:#8a5300;">（目录为空）</div>';
+        } else {
+          for (const f of files) {
+            html += '<div class="file-item"><a href="' + f.url + '" download>' + f.name + '</a><span class="file-size">' + fmtSize(f.size) + '</span></div>';
+          }
+        }
+        html += '</div>';
+        document.getElementById('downloadResult').innerHTML = html;
+        document.getElementById('downloadResult').style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = '🚀 一键下载内容';
+        document.getElementById('btn-stop').style.display = 'none';
+        es.close();
+        currentEventSource = null;
+      });
+
+      es.addEventListener('error', (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          appendLog('❌ 错误: ' + d.message);
+          document.getElementById('phaseInfo').innerHTML =
+            '<span class="phase-tag err">error</span><span style="color:#cf222e;">' + (d.message || '未知错误') + '</span>';
+        } catch (err) {
+          appendLog('❌ 连接异常');
+        }
+        btn.disabled = false;
+        btn.textContent = '🚀 一键下载内容';
+        document.getElementById('btn-stop').style.display = 'none';
+        try { es.close(); } catch (ex) {}
+        currentEventSource = null;
+      });
+
+      es.onerror = () => {
+        btn.disabled = false;
+        btn.textContent = '🚀 一键下载内容';
+        document.getElementById('btn-stop').style.display = 'none';
+        appendLog('连接已关闭');
+        try { es.close(); } catch (ex) {}
+        currentEventSource = null;
+      };
+    }
+
+    async function getTorrent() {
+      const raw = document.getElementById('magnet').value;
+      const hash = parseMagnet(raw);
+      const btn = document.getElementById('btn-torrent');
+      const result = document.getElementById('torrentResult');
+
+      result.innerHTML = '';
+      if (!hash) {
+        result.innerHTML = '<span class="err">✗ 请输入有效的磁力链接或40位 info hash</span>';
+        result.style.display = 'block';
+        return;
+      }
+
       btn.disabled = true;
       btn.textContent = '转换中...';
-      progress.style.display = 'block';
-      
+
       try {
         const downloadUrl = '/api/torrent?hash=' + hash;
         const resp = await fetch(downloadUrl, { cache: 'no-store' });
-        
         if (!resp.ok) {
-          result.innerHTML = '<span class="err">✗ 转换失败 (HTTP ' + resp.status + ')</span><br/><br/>冷门资源或刚发布的资源可能尚未被公共缓存收录。';
+          result.innerHTML = '<div style="margin-top:10px;"><span class="err">✗ 转换失败</span><br/><br/>冷门资源或刚发布的资源可能尚未被公共缓存收录。</div>';
+          result.style.display = 'block';
           return;
         }
-        
         const blob = await resp.blob();
         const sizeKB = (blob.size / 1024).toFixed(1);
         const fullUrl = window.location.origin + downloadUrl;
-        
+
         result.innerHTML = `
-          <span class="ok">✓ 转换成功</span> (${sizeKB} KB, hash: ${hash.substring(0, 8)}...)
-          <div style="margin-top: 10px;">
-            <a class="download-btn green" href="${downloadUrl}" download="${hash}.torrent" target="_blank">⬇ 方式1: 新标签页下载</a>
-            <button class="download-btn" onclick="downloadBlob('${hash}')">⬇ 方式2: Blob下载</button>
-            <form action="${downloadUrl}" method="GET" target="_blank" style="display: inline;">
-              <button type="submit" class="download-btn alt">⬇ 方式3: 表单提交</button>
-            </form>
-          </div>
-          <div class="url-box">
-            下载链接: <a href="${fullUrl}" target="_blank" rel="noopener noreferrer">${fullUrl}</a>
-            <button class="copy-btn" onclick="copyText('${fullUrl}')">复制</button>
-          </div>
-          <div class="url-box">
-            curl: <code>curl "${fullUrl}" -o ${hash}.torrent</code>
-            <button class="copy-btn" onclick="copyText('curl &quot;${fullUrl}&quot; -o ${hash}.torrent')">复制</button>
+          <div style="margin-top:12px;">
+            <span class="ok">✓ 转换成功</span> (${sizeKB} KB, hash: ${hash.substring(0, 8)}...)
+            <div style="margin-top:10px;">
+              <a class="download-btn green" href="${downloadUrl}" download="${hash}.torrent" target="_blank">⬇ 新标签页下载</a>
+              <form action="${downloadUrl}" method="GET" target="_blank" style="display:inline;">
+                <button type="submit" class="download-btn">⬇ 表单提交下载</button>
+              </form>
+            </div>
+            <div class="url-box">
+              下载链接: <a href="${fullUrl}" target="_blank" rel="noopener noreferrer">${fullUrl}</a>
+              <button class="copy-btn" onclick="navigator.clipboard.writeText('${fullUrl}').then(()=>alert('已复制'))">复制</button>
+            </div>
           </div>
         `;
-      } catch(err) {
-        result.innerHTML = '<span class="err">✗ 错误: ' + err.message + '</span>';
+        result.style.display = 'block';
+      } catch (err) {
+        result.innerHTML = '<div style="margin-top:10px;"><span class="err">✗ 错误: ' + err.message + '</span></div>';
+        result.style.display = 'block';
       } finally {
         btn.disabled = false;
-        btn.textContent = '开始转换';
-        progress.style.display = 'none';
+        btn.textContent = '📄 获取 Torrent 文件';
       }
     }
-    
-    async function copyText(text) {
-      try { await navigator.clipboard.writeText(text); alert('已复制到剪贴板!'); }
-      catch(e) { alert('复制失败，请手动选中复制: ' + text); }
-    }
-    
-    document.getElementById('magnet').addEventListener('keypress', (e) => { if (e.key === 'Enter') convert(); });
+
+    document.getElementById('magnet').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        const active = document.querySelector('.tab.active');
+        if (active.textContent.includes('下载内容')) startDownload();
+        else getTorrent();
+      }
+    });
   </script>
 </body>
 </html>
