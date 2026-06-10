@@ -76,12 +76,24 @@ const server = http.createServer((req, res) => {
       return;
     }
 
+    const timeout = setTimeout(() => {
+      if (!res.headersSent) {
+        res.setHeader('Content-Type', 'application/json');
+        res.writeHead(504);
+        res.end(JSON.stringify({ success: false, error: 'Timed out while contacting torrent sources' }));
+      }
+    }, 15000);
+
     service.getLink(magnet)
       .then(torrentUrl => {
+        clearTimeout(timeout);
+        if (res.headersSent) return;
         res.writeHead(200);
         res.end(JSON.stringify({ success: true, torrentUrl }));
       })
       .catch(err => {
+        clearTimeout(timeout);
+        if (res.headersSent) return;
         res.writeHead(500);
         res.end(JSON.stringify({ success: false, error: err.message }));
       });

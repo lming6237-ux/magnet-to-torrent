@@ -20,9 +20,6 @@ const servUrl = [
     function(hash) {
         return `http://bt.box.n0808.com/${hash.slice(0, 2)}/${hash.slice(-2)}/${hash}.torrent`;
     },
-    function(hash){
-        return `http://reflektor.karmorra.info/torrent/${hash}.torrent`;
-    },
     function(hash) {
         return `http://torcache.net/torrent/${hash}.torrent`;
     },
@@ -53,60 +50,57 @@ service.addService = function(serv, pushToFront) {
 };
 
 var verifyTorrent = function(url) {
-    const options = { follow_max: 5 };
-    const result = needle('head', url, options).then((response) => {
+    const options = { follow_max: 3, open_timeout: 4000, read_timeout: 4000 };
+    return needle('head', url, options).then((response) => {
         if (!(response.statusCode >= 200 && response.statusCode < 300)) {
             const err = new Error(`Error response: ${response.statusCode}`);
             logger.error(err);
             return Promise.reject(err);
         }
 
-        if (response.headers['content-type'] === 'application/octet-stream' ||
-            response.headers['content-type'] === 'application/x-bittorrent') {
+        const ct = response.headers && (response.headers['content-type'] || '');
+        if (ct === 'application/octet-stream' ||
+            ct === 'application/x-bittorrent' ||
+            ct.indexOf('torrent') !== -1) {
             return url;
         } else {
-            const err = new Error(`Invalid content type: ${response.headers['content-type']}`);
+            const err = new Error(`Invalid content type: ${ct}`);
             logger.error(err);
             return Promise.reject(err);
         }
     });
-    return Promise.resolve(result);
 };
 
 service.getLink = function(uri) {
     const hash = parseInfoHash(uri);
+    if (!hash) {
+        const err = new Error('Invalid magnet uri or info hash.');
+        logger.error(err);
+        return Promise.reject(err);
+    }
+
+    const urls = servUrl
+        .map((fn) => fn(hash))
+        .filter((u) => validator.isURL(u));
+
+    let resolved = false;
     return new Promise((resolve, reject) => {
-        if (!hash) {
-            const err = new Error('Invalid magnet uri or info hash.');
-            logger.error(err);
-            return reject(err);
-        }else{
-            var getNext = function(x) {
-                const attemptCount = x+1;
-                logger.debug(`Magnet conversion attempt ${attemptCount}`);
-                if (x < servUrl.length ) {
-                    var torrentUrl = servUrl[x](hash);
-                    if(validator.isURL(torrentUrl)){
-                        logger.debug(`Attempting to check url: ${torrentUrl}`);
-                        verifyTorrent(torrentUrl)
-                            .then((url) => {
-                                logger.debug(`Magnet conversion completed; result: ${url}`);
-                                resolve(url);
-                            })
-                            .catch((err) => {
-                                logger.error(err);
-                                getNext(x+1);
-                            });
-                    }else{
-                        getNext(x+1);
-                    }
-                } else {
-                    logger.debug(`Magnet conversion failed for ${attemptCount} attempts`);
-                    reject(new Error('Could not convert magnet link. All services tried.'));
+        const attempt = verifyTorrent.bind(null);
+        const promises = urls.map((u) =>
+            attempt(u).then((okUrl) => {
+                if (!resolved) {
+                    resolved = true;
+                    resolve(okUrl);
                 }
-            };
-            getNext(0);
-        }
+                return okUrl;
+            }).catch(() => null)
+        );
+
+        Promise.all(promises).then((results) => {
+            if (!resolved) {
+                reject(new Error('Could not convert magnet link. All services tried.'));
+            }
+        });
     });
 };
 
