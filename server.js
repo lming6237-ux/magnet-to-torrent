@@ -1,242 +1,195 @@
 'use strict';
 
 const http = require('http');
-const service = require('./index.js');
+const https = require('https');
+const crypto = require('crypto');
+const { spawn } = require('child_process');
+const { URL } = require('url');
+
+const TORRENT_SOURCES = [
+  { name: 'itorrents.net', url: (h) => 'https://itorrents.net/torrent/' + h + '.torrent' },
+  { name: 'itorrents.org', url: (h) => 'https://itorrents.org/torrent/' + h + '.torrent' },
+  { name: 'torrage.com',  url: (h) => 'https://torrage.com/torrent/' + h + '.torrent' },
+];
+
+function parseInfoHash(input) {
+  if (!input) return null;
+  input = input.trim();
+  if (/^[a-fA-F0-9]{40}$/.test(input)) return input.toUpperCase();
+  const m = input.match(/xt=urn:btih:([a-fA-F0-9]{40})/);
+  if (m) return m[1].toUpperCase();
+  return null;
+}
+
+function curlBuffer(url, timeoutSec) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    const args = [
+      '-s', '-L',
+      '-A', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+      '--max-time', String(timeoutSec),
+      '--compressed',
+      url
+    ];
+    const child = spawn('curl', args);
+    child.stdout.on('data', (c) => chunks.push(c));
+    child.stderr.on('data', () => {});
+    child.on('error', (e) => reject(e));
+    child.on('close', (code) => {
+      const data = Buffer.concat(chunks);
+      if (code === 0 && data.length > 100) resolve(data);
+      else reject(new Error('curl exit ' + code + ' size=' + data.length));
+    });
+  });
+}
+
+function verifyTorrent(buf) {
+  if (!buf || buf.length < 200) return false;
+  if (buf[0] !== 0x64) return false;
+  try {
+    const marker = Buffer.from('4:info');
+    const idx = buf.indexOf(marker);
+    if (idx < 0) return false;
+    const infoStart = idx + marker.length;
+    let depth = 1, pos = infoStart, iters = 0;
+    while (depth > 0 && pos < buf.length && iters < 200000) {
+      iters++;
+      const c = buf[pos];
+      if (c === 0x64 || c === 0x6c) { depth++; pos++; }
+      else if (c === 0x65) { depth--; pos++; }
+      else if (c === 0x69) {
+        const end = buf.indexOf('e', pos + 1);
+        if (end < 0) return false;
+        pos = end + 1;
+      } else if (c >= 0x30 && c <= 0x39) {
+        const colon = buf.indexOf(':', pos);
+        if (colon < 0) return false;
+        const lenStr = buf.slice(pos, colon).toString();
+        const len = parseInt(lenStr, 10);
+        if (isNaN(len) || len < 0) return false;
+        pos = colon + 1 + len;
+      } else return false;
+    }
+    return depth === 0;
+  } catch (e) { return false; }
+}
+
+function fetchFromSource(source, hash, timeoutSec) {
+  return curlBuffer(source.url(hash), timeoutSec).then((data) => {
+    if (verifyTorrent(data)) return { source: source.name, buffer: data };
+    throw new Error('invalid torrent from ' + source.name);
+  });
+}
+
+function fetchTorrent(hash, overallTimeoutMs) {
+  return new Promise((resolve, reject) => {
+    const promises = TORRENT_SOURCES.map((s) =>
+      fetchFromSource(s, hash, 15).then((r) => { resolve(r); return r; }).catch(() => null)
+    );
+    const fallback = setTimeout(() => {
+      Promise.all(promises).then((results) => {
+        const found = results.find((r) => r);
+        if (found) resolve(found);
+        else reject(new Error('无法从任何缓存源获取到有效 torrent 文件。该资源可能未被公共缓存收录。'));
+      });
+    }, overallTimeoutMs);
+  });
+}
+
+// ============ 前端页面 ============
+
+const homePage = '<!DOCTYPE html>\n\
+<html lang="zh-CN"><head><meta charset="UTF-8" />\n\
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />\n\
+<title>磁力链接转 Torrent 文件</title>\n\
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;margin:0;padding:30px 20px;background:#f6f8fa;color:#1f2328}\n\
+.container{max-width:760px;margin:0 auto}h1{font-size:24px}.sub{color:#57606a;font-size:14px;margin-bottom:20px}\n\
+.card{background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:24px}\n\
+label{display:block;font-size:13px;color:#424a53;margin-bottom:6px;font-weight:500}\n\
+input[type=text]{width:100%;padding:10px 12px;font-size:14px;border:1px solid #d0d7de;border-radius:6px;margin-bottom:12px;font-family:ui-monospace,monospace}\n\
+button{padding:10px 24px;font-size:14px;background:#2da44e;color:#fff;border:1px solid rgba(27,31,36,0.15);border-radius:6px;cursor:pointer;font-weight:500}\n\
+button:hover:not(:disabled){background:#2c974b}button:disabled{background:#81b196;cursor:not-allowed}\n\
+#result{margin-top:20px;padding:16px;background:#f6f8fa;border-radius:6px;min-height:40px;word-break:break-all;border:1px solid #d0d7de}\n\
+.ok{color:#1a7f37;font-weight:600}.err{color:#cf222e;font-weight:600}\n\
+.log{margin-top:16px;padding:12px;background:#0d1117;color:#8b949e;font-family:ui-monospace,monospace;font-size:12px;border-radius:6px;max-height:260px;overflow-y:auto}\n\
+.log div{line-height:1.8}.log .ok{color:#3fb950}.log .warn{color:#d29922}.log .err{color:#f85149}\n\
+.download-btn{display:inline-block;margin-top:12px;padding:10px 20px;background:#0969da;color:#fff;text-decoration:none;border-radius:6px;font-weight:500}\n\
+.download-btn:hover{background:#0759b5}\n\
+.examples{margin-top:16px;font-size:12px;color:#57606a}\n\
+.examples code{background:#eaeef2;padding:2px 6px;border-radius:4px}\n\
+.progress{width:100%;height:6px;background:#d0d7de;border-radius:3px;overflow:hidden;margin:10px 0}\n\
+.progress-fill{height:100%;background:#2da44e;width:0;transition:width .3s}</style></head><body>\n\
+<div class="container"><h1>磁力链接转 Torrent 文件</h1>\n\
+<div class="sub">通过多个公共 torrent 缓存源获取元数据 — 粘贴磁力链接或 info hash</div>\n\
+<div class="card"><label for="magnet">磁力链接 / info hash</label>\n\
+<input id="magnet" type="text" placeholder="magnet:?xt=urn:btih:4A3F5E08BCEF825718EDA30637230585E3330599" />\n\
+<button id="btn" onclick="convert()">开始转换</button>\n\
+<div class="progress"><div class="progress-fill" id="progressFill"></div></div>\n\
+<div class="examples">示例: <code>magnet:?xt=urn:btih:4A3F5E08BCEF825718EDA30637230585E3330599</code><br/>\n\
+或 40 位 hash: <code>4A3F5E08BCEF825718EDA30637230585E3330599</code></div>\n\
+<div id="result" style="display:none"></div><div class="log" id="log"></div></div></div>\n\
+<script>let progressTimer=null;function log(msg,type){const el=document.getElementById("log");const line=document.createElement("div");if(type)line.className=type;const t=new Date().toTimeString().slice(0,8);line.textContent="["+t+"] "+msg;el.appendChild(line);el.scrollTop=el.scrollHeight}\n\
+function startProgress(){let pct=0;const f=document.getElementById("progressFill");progressTimer=setInterval(()=>{pct=Math.min(pct+Math.random()*3,95);f.style.width=pct+"%"},300)}\n\
+function stopProgress(s){if(progressTimer){clearInterval(progressTimer);progressTimer=null}document.getElementById("progressFill").style.width=(s?100:0)+"%"} \n\
+function parseMagnet(input){input=(input||"").trim();if(/^[a-fA-F0-9]{40}$/.test(input))return input.toUpperCase();const m=input.match(/xt=urn:btih:([a-fA-F0-9]{40})/);if(m)return m[1].toUpperCase();return null}\n\
+async function convert(){const raw=document.getElementById("magnet").value;const hash=parseMagnet(raw);const btn=document.getElementById("btn");const resultEl=document.getElementById("result");resultEl.style.display="block";resultEl.innerHTML="";if(!hash){resultEl.innerHTML=\'<span class="err">请输入有效的磁力链接或 40 位 info hash</span>\';log("输入无效","err");return}\n\
+btn.disabled=true;btn.textContent="转换中...";startProgress();log("目标 hash: "+hash);log("正在从缓存源获取 torrent 文件...");try{const resp=await fetch("/api/torrent?hash="+hash,{cache:"no-store"});stopProgress(true);if(!resp.ok){let msg="转换失败";try{const j=await resp.json();if(j.error)msg=j.error}catch(e){}resultEl.innerHTML=\'<span class="err">✗ \'+msg+\'</span><br/><br/><em style="color:#57606a">提示: 冷门或刚发布的资源可能还没被公共缓存收录。</em>\';log("失败: "+msg,"err");return}\n\
+const blob=await resp.blob();log("成功! 大小: "+(blob.size/1024).toFixed(2)+" KB","ok");const url=URL.createObjectURL(blob);resultEl.innerHTML=\'<span class="ok">✓ 转换成功</span><br/><br/>Hash: <code>\'+hash+\'</code><br/>大小: \'+(blob.size/1024).toFixed(2)+" KB<br/>";const a=document.createElement("a");a.href=url;a.download=hash+".torrent";a.className="download-btn";a.textContent="⬇ 下载 .torrent 文件";resultEl.appendChild(a)}catch(err){stopProgress(false);resultEl.innerHTML=\'<span class="err">✗ 请求错误: \'+err.message+\'</span>\';log("请求错误: "+err.message,"err")}finally{btn.disabled=false;btn.textContent="开始转换"}}\n\
+document.getElementById("magnet").addEventListener("keypress",(e)=>{if(e.key==="Enter")convert()})</script>\n\
+</body></html>';
+
+// ============ HTTP Server ============
 
 const PORT = process.env.PORT || 3000;
 
-// 首页 - 基于 WebTorrent 的纯前端磁力转 torrent
-const homePage = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>磁力链接转 Torrent 文件</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; margin: 0; padding: 30px 20px; background: #f6f8fa; color: #1f2328; }
-    .container { max-width: 760px; margin: 0 auto; }
-    h1 { font-size: 24px; margin-bottom: 8px; }
-    .sub { color: #57606a; font-size: 14px; margin-bottom: 20px; }
-    .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 24px; }
-    label { display: block; font-size: 13px; color: #424a53; margin-bottom: 6px; font-weight: 500; }
-    input[type=text] { width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #d0d7de; border-radius: 6px; margin-bottom: 12px; box-sizing: border-box; font-family: ui-monospace, monospace; }
-    button { padding: 10px 20px; font-size: 14px; background: #2da44e; color: #fff; border: 1px solid rgba(27,31,36,0.15); border-radius: 6px; cursor: pointer; font-weight: 500; }
-    button:hover:not(:disabled) { background: #2c974b; }
-    button:disabled { background: #81b196; cursor: not-allowed; }
-    .info { font-size: 13px; color: #6e7781; margin-bottom: 16px; }
-    #result { margin-top: 20px; padding: 16px; background: #f6f8fa; border-radius: 6px; min-height: 40px; word-break: break-all; border: 1px solid #d0d7de; }
-    .log { margin-top: 16px; padding: 12px; background: #0d1117; color: #8b949e; font-family: ui-monospace, monospace; font-size: 12px; border-radius: 6px; max-height: 220px; overflow-y: auto; }
-    .log div { line-height: 1.6; }
-    .log .ok { color: #3fb950; }
-    .log .warn { color: #d29922; }
-    .log .err { color: #f85149; }
-    .file-info { margin-top: 16px; padding: 14px; background: #ddf4e1; border: 1px solid #2da44e; border-radius: 6px; font-size: 13px; }
-    .file-info a { display: inline-block; margin-top: 8px; padding: 8px 14px; background: #2da44e; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500; }
-    a.link { color: #0969da; text-decoration: none; }
-    a.link:hover { text-decoration: underline; }
-    .examples { margin-top: 20px; font-size: 12px; color: #57606a; }
-    .examples code { background: #eaeef2; padding: 2px 6px; border-radius: 4px; }
-    .progress-bar { width: 100%; height: 6px; background: #d0d7de; border-radius: 3px; overflow: hidden; margin: 10px 0; }
-    .progress-fill { height: 100%; background: #2da44e; width: 0%; transition: width 0.3s; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>磁力链接转 Torrent 文件</h1>
-    <div class="sub">纯前端基于 <a href="https://webtorrent.io" class="link" target="_blank">WebTorrent</a> — 连接 torrent 网络获取元数据，无需后端服务</div>
+const server = http.createServer(async (req, res) => {
+  try {
+    const parsed = new URL(req.url, 'http://' + req.headers.host);
+    const path = parsed.pathname;
 
-    <div class="card">
-      <label for="magnet">粘贴磁力链接或 info hash</label>
-      <input id="magnet" type="text" placeholder="magnet:?xt=urn:btih:4A3F5E08BCEF825718EDA30637230585E3330599" />
-      <button id="btn" onclick="convert()">开始转换</button>
-      <div class="progress-bar" id="progressBar"><div class="progress-fill" id="progressFill"></div></div>
-
-      <div class="examples">
-        示例:
-        <code>magnet:?xt=urn:btih:4A3F5E08BCEF825718EDA30637230585E3330599</code>
-        或直接粘贴 40 位 hash:
-        <code>4A3F5E08BCEF825718EDA30637230585E3330599</code>
-      </div>
-
-      <div id="result" style="display:none"></div>
-      <div id="fileInfo" style="display:none"></div>
-      <div class="log" id="log"></div>
-    </div>
-  </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
-  <script>
-    let client = null;
-
-    function log(msg, type) {
-      const el = document.getElementById('log');
-      const line = document.createElement('div');
-      if (type) line.className = type;
-      const time = new Date().toTimeString().slice(0, 8);
-      line.textContent = '[' + time + '] ' + msg;
-      el.appendChild(line);
-      el.scrollTop = el.scrollHeight;
+    if (req.method === 'GET' && (path === '/' || path === '')) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(homePage);
+      return;
     }
 
-    function setProgress(pct) {
-      document.getElementById('progressFill').style.width = Math.min(100, Math.max(0, pct)) + '%';
+    if (req.method === 'GET' && path === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok' }));
+      return;
     }
 
-    function parseMagnet(input) {
-      input = input.trim();
-      if (/^[a-fA-F0-9]{40}$/.test(input)) {
-        return 'magnet:?xt=urn:btih:' + input.toLowerCase();
-      }
-      if (input.startsWith('magnet:')) return input;
-      return null;
-    }
-
-    async function convert() {
-      const raw = document.getElementById('magnet').value;
-      const magnet = parseMagnet(raw);
-      const btn = document.getElementById('btn');
-      const resultEl = document.getElementById('result');
-      const fileInfoEl = document.getElementById('fileInfo');
-
-      resultEl.style.display = 'block';
-      fileInfoEl.style.display = 'none';
-      resultEl.textContent = '';
-      setProgress(0);
-
-      if (!magnet) {
-        resultEl.textContent = '请输入有效的磁力链接或 40 位 info hash';
-        log('invalid input', 'err');
+    if (req.method === 'GET' && path === '/api/torrent') {
+      const hash = parseInfoHash(parsed.searchParams.get('magnet') || parsed.searchParams.get('hash') || '');
+      if (!hash) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid magnet link or info hash' }));
         return;
       }
-
-      btn.disabled = true;
-      btn.textContent = '转换中...';
-
-      if (!window.WebTorrent) {
-        resultEl.textContent = '正在加载 WebTorrent 库，请稍候...';
-        log('waiting for WebTorrent library...', 'warn');
-        setTimeout(convert, 1000);
-        return;
-      }
-
       try {
-        if (!client) {
-          client = new WebTorrent({ dht: true, tracker: true, webSeeds: true });
-          log('WebTorrent client initialized (DHT + trackers)', 'ok');
-        }
-
-        log('Looking up peers for: ' + magnet);
-        const start = Date.now();
-
-        const torrent = await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('Timeout after 60s - could not find any peers. This torrent may be inactive.'));
-          }, 60000);
-
-          client.add(magnet, { announce: [
-            'wss://tracker.openwebtorrent.com',
-            'wss://tracker.btorrent.xyz',
-            'wss://tracker.files.fm:7073/announce',
-            'udp://tracker.opentrackr.org:1337',
-            'udp://tracker.openbittorrent.com:80',
-            'udp://open.stealth.si:80/announce',
-            'udp://tracker.torrent.eu.org:451/announce',
-          ]}, (t) => {
-            clearTimeout(timeout);
-            resolve(t);
-          });
-
-          // Wire-level events for debug
-          if (client.torrents.length > 0) {
-            const t = client.torrents[client.torrents.length - 1];
-            t.on('wire', (wire, addr) => {
-              log('Connected to peer: ' + (addr || 'unknown') + ' (' + t.numPeers + ' total)');
-            });
-          }
+        const result = await fetchTorrent(hash, 20000);
+        res.writeHead(200, {
+          'Content-Type': 'application/x-bittorrent',
+          'Content-Length': result.buffer.length,
+          'Content-Disposition': 'attachment; filename="' + hash + '.torrent',
+          'Cache-Control': 'no-store',
         });
-
-        const elapsed = Math.round((Date.now() - start) / 1000);
-        log('Got metadata in ' + elapsed + 's | name: ' + torrent.name + ' | pieces: ' + torrent.pieces.length, 'ok');
-        setProgress(100);
-
-        const buf = torrent.torrentFile;
-        log('Torrent file size: ' + (buf.length / 1024).toFixed(2) + ' KB', 'ok');
-
-        // 创建下载链接
-        const blob = new Blob([buf], { type: 'application/x-bittorrent' });
-        const url = URL.createObjectURL(blob);
-        const safeName = (torrent.name || 'torrent').replace(/[\/\\:*?"<>|]/g, '_').slice(0, 120);
-
-        resultEl.innerHTML = '<strong style="color:#2da44e">✓ 转换成功</strong>';
-        fileInfoEl.style.display = 'block';
-        fileInfoEl.className = 'file-info';
-        let info = '<strong>' + safeName + '</strong>';
-        info += '<br>文件数: ' + torrent.files.length + ' | 总大小: ' + formatBytes(torrent.length) + ' | 分片数: ' + torrent.pieces.length;
-        if (torrent.infoHash) info += '<br>info hash: <code>' + torrent.infoHash + '</code>';
-        info += '<br><a href="' + url + '" download="' + safeName + '.torrent">⬇ 下载 .torrent 文件</a>';
-        fileInfoEl.innerHTML = info;
-
+        res.end(result.buffer);
       } catch (err) {
-        log('Error: ' + err.message, 'err');
-        resultEl.innerHTML = '<strong style="color:#d1242f">✗ 转换失败</strong><br><span style="color:#57606a">' + err.message + '</span><br><br><em>提示: 小种子/无种子的磁力链接可能找不到任何 peer。请试试其他热门资源。</em>';
-        setProgress(0);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '开始转换';
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message, hash: hash }));
       }
+      return;
     }
 
-    function formatBytes(bytes) {
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
-      if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(2) + ' MB';
-      return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
-    }
-
-    document.getElementById('magnet').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') convert();
-    });
-  </script>
-</body>
-</html>`;
-
-const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-
-  if (req.method === 'GET' && (req.url === '/' || req.url === '' || req.url.startsWith('/?'))) {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.writeHead(200);
-    res.end(homePage);
-    return;
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+  } catch (e) {
+    try {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    } catch (f) {}
   }
-
-  if (req.method === 'GET' && req.url === '/health') {
-    res.setHeader('Content-Type', 'application/json');
-    res.writeHead(200);
-    res.end(JSON.stringify({ status: 'ok' }));
-    return;
-  }
-
-  // 兼容旧 API - 后端转换，但后端网络受限，不推荐使用
-  // 返回帮助信息提示用户用前端
-  if (req.method === 'GET' && req.url.startsWith('/convert')) {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.writeHead(200);
-    res.end(`
-      <!DOCTYPE html><html><head><meta charset="UTF-8"><title>提示</title></head>
-      <body style="font-family:sans-serif;padding:30px;max-width:600px;margin:0 auto">
-      <h2>请使用前端界面</h2>
-      <p>由于服务器网络环境限制，无法从 tracker/DHT 获取 peers。请回到 <a href="/">首页</a> 在浏览器中进行转换。</p>
-      <p>浏览器拥有完整的网络访问权限，可以通过 WebTorrent (WebRTC DHT + WebSocket trackers) 直接连接 peer 获取元数据。</p>
-      </body></html>
-    `);
-    return;
-  }
-
-  res.setHeader('Content-Type', 'application/json');
-  res.writeHead(404);
-  res.end(JSON.stringify({ error: 'Not found' }));
 });
 
 server.listen(PORT, '0.0.0.0', () => {
