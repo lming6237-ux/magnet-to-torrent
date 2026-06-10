@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>磁力链接转 Torrent 文件</title>
+  <title>磁力链接转 Torrent</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; margin: 0; padding: 30px 20px; background: #f6f8fa; color: #1f2328; }
-    .container { max-width: 760px; margin: 0 auto; }
+    .container { max-width: 800px; margin: 0 auto; }
     h1 { font-size: 24px; }
     .sub { color: #57606a; font-size: 14px; margin-bottom: 20px; }
     .card { background: #fff; border: 1px solid #d0d7de; border-radius: 8px; padding: 24px; }
@@ -29,12 +29,21 @@
     .examples code { background: #eaeef2; padding: 2px 6px; border-radius: 4px; }
     .progress { width: 100%; height: 6px; background: #d0d7de; border-radius: 3px; overflow: hidden; margin: 10px 0; }
     .progress-fill { height: 100%; background: #2da44e; width: 0; transition: width .3s; }
+    .url-box { margin-top: 12px; padding: 10px; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 12px; word-break: break-all; }
+    .copy-btn { padding: 4px 12px; font-size: 12px; background: #f6f8fa; color: #24292f; border: 1px solid #d0d7de; border-radius: 4px; cursor: pointer; }
+    .copy-btn:hover { background: #eaeef2; }
+    .tip { margin-top: 16px; padding: 12px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 6px; font-size: 13px; color: #856404; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>磁力链接转 Torrent 文件</h1>
-    <div class="sub">通过多个公共 torrent 缓存源获取元数据</div>
+    <h1>🔗 磁力链接转 Torrent 文件</h1>
+    <div class="sub">通过公共缓存源获取 torrent 元数据</div>
+    
+    <div class="tip">
+      💡 <strong>重要提示</strong>: 如果下载按钮在当前预览环境中无效，请在普通浏览器中打开本页面，或直接复制下方生成的下载链接到新标签页。
+    </div>
+    
     <div class="card">
       <label for="magnet">磁力链接 / info hash</label>
       <input id="magnet" type="text" placeholder="magnet:?xt=urn:btih:4A3F5E08BCEF825718EDA30637230585E3330599" />
@@ -75,17 +84,13 @@
       if (m) return m[1].toUpperCase();
       return null;
     }
-    function downloadFile(blob, filename) {
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      const event = new MouseEvent('click');
-      a.dispatchEvent(event);
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+    async function copyToClipboard(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch(e) {
+        return false;
+      }
     }
     async function convert() {
       const raw = document.getElementById('magnet').value;
@@ -105,7 +110,8 @@
       log('目标 hash: ' + hash);
       log('正在从缓存源获取 torrent 文件...');
       try {
-        const resp = await fetch('/api/torrent?hash=' + hash, { cache: 'no-store' });
+        const downloadUrl = '/api/torrent?hash=' + hash;
+        const resp = await fetch(downloadUrl, { cache: 'no-store' });
         stopProgress(true);
         if (!resp.ok) {
           let msg = '转换失败';
@@ -115,30 +121,29 @@
           return;
         }
         const data = await resp.arrayBuffer();
-        log('成功! 大小: ' + (data.byteLength / 1024).toFixed(2) + ' KB', 'ok');
-        resultEl.innerHTML = '<span class="ok">✓ 转换成功</span><br/><br/>Hash: <code>' + hash + '</code><br/>大小: ' + (data.byteLength / 1024).toFixed(2) + ' KB<br/>';
-        // 方案A: 直接链接下载（最可靠）
-        const directLink = document.createElement('a');
-        directLink.href = '/api/torrent?hash=' + hash;
-        directLink.download = hash + '.torrent';
-        directLink.className = 'download-btn';
-        directLink.textContent = '⬇ 下载 .torrent 文件';
-        resultEl.appendChild(directLink);
-        // 方案B: 备用下载链接（新窗口打开）
-        const br = document.createElement('div');
-        br.style.marginTop = '8px';
-        resultEl.appendChild(br);
-        const altLink = document.createElement('a');
-        altLink.href = '/api/torrent?hash=' + hash;
-        altLink.target = '_blank';
-        altLink.rel = 'noopener noreferrer';
-        altLink.style.color = '#0969da';
-        altLink.style.fontSize = '12px';
-        altLink.style.textDecoration = 'none';
-        altLink.textContent = '→ 如果按钮无效，点击此处在新窗口下载';
-        resultEl.appendChild(altLink);
-        // 方案C: 自动触发一次下载（可选）
-        setTimeout(() => { downloadFile(new Blob([data], { type: 'application/x-bittorrent' }), hash + '.torrent'); }, 300);
+        const sizeKB = (data.byteLength / 1024).toFixed(2);
+        log('成功! 大小: ' + sizeKB + ' KB', 'ok');
+        
+        const fullUrl = window.location.origin + downloadUrl;
+        resultEl.innerHTML = `
+          <span class="ok">✓ 转换成功</span><br/><br/>
+          Hash: <code>${hash}</code><br/>
+          大小: ${sizeKB} KB<br/>
+          <div style="margin-top:12px;">
+            <a href="${downloadUrl}" download="${hash}.torrent" class="download-btn">⬇ 点击下载 .torrent 文件</a>
+          </div>
+          <div class="url-box">
+            下载链接: ${fullUrl}
+            <button class="copy-btn" onclick="copyToClipboard('${fullUrl}').then(success => alert(success ? '已复制到剪贴板!' : '复制失败，请手动复制'))">复制链接</button>
+          </div>
+          <div style="margin-top:12px;font-size:13px;color:#57606a;">
+            💡 如果按钮无效，请：
+            <ul style="margin:8px 0 0 20px;padding:0;">
+              <li>将上方链接复制到浏览器新标签页打开</li>
+              <li>或使用命令: <code>curl "${fullUrl}" -o ${hash}.torrent</code></li>
+            </ul>
+          </div>
+        `;
       } catch(err) {
         stopProgress(false);
         resultEl.innerHTML = '<span class="err">✗ 请求错误: ' + err.message + '</span>';
