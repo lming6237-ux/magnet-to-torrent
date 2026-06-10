@@ -37,12 +37,14 @@
     "debug": "^3.1.0",
     "https-proxy-agent": "^9.1.0",
     "k-bucket": "^5.1.0",
+    "localtunnel": "^2.0.2",
     "lodash": "^4.17.15",
     "magnet-uri": "^5.1.7",
     "needle": "^2.1.1",
     "parse-torrent": "^11.0.21",
     "ut_metadata": "^5.0.1",
     "validator": "^9.3.0",
-    "webtorrent": "^3.0.16"
+    "webtorrent": "^3.0.16",
+    "ws": "^8.21.0"
   }
 }
