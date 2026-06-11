@@ -44,9 +44,13 @@ magnetToTorrent.getLink('magnet:?xt=urn:btih:...')
 
   <div class="card">
     <h3>🔧 在线测试</h3>
+    <p style="color: #666; font-size: 14px;">
+      💡 提示：Info Hash 必须是 <strong>40 个十六进制字符</strong>（0-9, A-F）或 <strong>32 个 Base32 字符</strong>。
+    </p>
     <label>磁力链接或 Info Hash:</label><br><br>
-    <input type="text" id="magnetInput" placeholder="magnet:?xt=urn:btih:..." /><br><br>
+    <input type="text" id="magnetInput" placeholder="magnet:?xt=urn:btih:40个字符..." /><br><br>
     <button onclick="convert()">转换</button>
+    <button onclick="fillExample()" style="background:#6c757d; margin-left: 10px;">填充示例</button>
     <div id="result" style="margin-top: 20px;"></div>
   </div>
 
@@ -59,6 +63,9 @@ magnetToTorrent.getLink('magnet:?xt=urn:btih:...')
   </div>
 
   <script>
+    function fillExample() {
+      document.getElementById('magnetInput').value = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10';
+    }
     async function convert() {
       const input = document.getElementById('magnetInput').value.trim();
       const result = document.getElementById('result');
@@ -66,7 +73,7 @@ magnetToTorrent.getLink('magnet:?xt=urn:btih:...')
         result.innerHTML = '<div class="result error">请输入磁力链接或 info hash</div>';
         return;
       }
-      result.innerHTML = '<div class="result">正在转换...</div>';
+      result.innerHTML = '<div class="result">正在转换（可能需要数秒查询服务）...</div>';
       try {
         const res = await fetch('/api/convert', {
           method: 'POST',
@@ -75,12 +82,18 @@ magnetToTorrent.getLink('magnet:?xt=urn:btih:...')
         });
         const data = await res.json();
         if (data.url) {
-          result.innerHTML = '<div class="result"><strong>下载链接:</strong><br><a href="' + data.url + '" target="_blank">' + data.url + '</a></div>';
+          result.innerHTML = '<div class="result"><strong>✅ 成功！下载链接:</strong><br><a href="' + data.url + '" target="_blank">' + data.url + '</a></div>';
         } else {
-          result.innerHTML = '<div class="result error">错误: ' + (data.error || '转换失败') + '</div>';
+          let msg = data.error || '转换失败';
+          if (msg.includes('Invalid magnet') || msg.includes('Invalid magnet uri')) {
+            msg = '❌ Info Hash 格式不正确。必须是 40 个十六进制字符（0-9, A-F）或 32 个 Base32 字符。您输入的长度不够。';
+          } else if (msg.includes('All services tried')) {
+            msg = '❌ 所有转换服务均未找到该种子。该种子可能较新或已失效，公共缓存服务中暂无收录。';
+          }
+          result.innerHTML = '<div class="result error">' + msg + '</div>';
         }
       } catch (e) {
-        result.innerHTML = '<div class="result error">请求失败: ' + e.message + '</div>';
+        result.innerHTML = '<div class="result error">请求失败: ' + (e.message || '网络异常') + '</div>';
       }
     }
   </script>

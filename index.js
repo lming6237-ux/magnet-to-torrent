@@ -32,12 +32,25 @@ const servUrl = [
 ];
 
 var parseInfoHash = function(uri) {
-    if(uri){
+    if(!uri) return;
+    uri = String(uri).trim();
+    let hash = null;
+    try {
         const uriObj = mguri.decode(uri);
-        const hash = uriObj.infoHash || uri;
-        if (/^[A-Za-z0-9]{40}$/.test(hash)) {
-            return hash.toUpperCase();
+        if (uriObj.infoHash) {
+            hash = uriObj.infoHash;
+        } else if (uriObj.xt && typeof uriObj.xt === 'string') {
+            const match = uriObj.xt.match(/^urn:btih:([A-Fa-f0-9]{40})/);
+            if (match) hash = match[1];
         }
+    } catch (e) {}
+    if (!hash) hash = uri;
+    hash = String(hash).trim();
+    if (/^[A-Fa-f0-9]{40}$/.test(hash)) {
+        return hash.toUpperCase();
+    }
+    if (/^[A-Za-z2-7]{32}$/.test(hash)) {
+        return hash.toUpperCase();
     }
 };
 service.isMagnet = function(uri) {
@@ -86,7 +99,13 @@ service.getLink = function(uri) {
                 logger.debug(`Magnet conversion attempt ${attemptCount}`);
                 if (x < servUrl.length ) {
                     var torrentUrl = servUrl[x](hash);
-                    if(validator.isURL(torrentUrl)){
+                    let isUrlValid = false;
+                    try {
+                        isUrlValid = validator.isURL(torrentUrl);
+                    } catch(e) {
+                        isUrlValid = false;
+                    }
+                    if(isUrlValid){
                         logger.debug(`Attempting to check url: ${torrentUrl}`);
                         verifyTorrent(torrentUrl)
                             .then((url) => {
