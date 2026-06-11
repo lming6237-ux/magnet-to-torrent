@@ -6,6 +6,14 @@ const port = 3000;
 
 app.use(express.json());
 
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Magnet to Torrent API',
+    usage: 'GET /convert?magnet=<your_magnet_link>',
+    example: 'GET /convert?magnet=magnet:?xt=urn:btih:YOUR_INFO_HASH'
+  });
+});
+
 app.get('/convert', async (req, res) => {
   const { magnet } = req.query;
   
